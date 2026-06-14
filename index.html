@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2026世界杯 x 愤怒的小鸟 - 蹭杯大作战</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #0a1628 0%, #1a3a5c 40%, #0d4b3e 100%);
+  font-family: 'Arial', sans-serif;
+  overflow-x: hidden;
+}
+.stars {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  pointer-events: none; z-index: 0;
+}
+.star {
+  position: absolute; background: #fff; border-radius: 50%;
+  animation: twinkle 2s infinite alternate;
+}
+@keyframes twinkle { 0% { opacity: 0.3; } 100% { opacity: 1; } }
+
+.container {
+  position: relative; z-index: 1;
+  max-width: 1200px; margin: 0 auto; padding: 30px 20px;
+}
+
+.header {
+  text-align: center; margin-bottom: 50px;
+  animation: slideDown 0.8s ease-out;
+}
+@keyframes slideDown { from { opacity: 0; transform: translateY(-40px); } to { opacity: 1; transform: translateY(0); } }
+
+.header h1 {
+  font-size: 3em; color: #fff;
+  text-shadow: 0 0 30px rgba(255,215,0,0.5), 0 4px 8px rgba(0,0,0,0.5);
+  margin-bottom: 10px;
+}
+.header h1 .cup { color: #ffd700; }
+.header h1 .bird { color: #ff4444; }
+.header .subtitle {
+  font-size: 1.2em; color: rgba(255,255,255,0.7);
+  letter-spacing: 3px;
+}
+.header .host {
+  margin-top: 15px; font-size: 0.95em; color: rgba(255,255,255,0.5);
+  display: flex; align-items: center; justify-content: center; gap: 15px;
+}
+.flag { font-size: 1.5em; }
+
+.trophy {
+  font-size: 80px; margin: 20px 0;
+  animation: float 3s ease-in-out infinite;
+  filter: drop-shadow(0 0 20px rgba(255,215,0,0.4));
+}
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-15px); }
+}
+
+.games {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 30px;
+  margin-bottom: 50px;
+}
+
+.game-card {
+  background: rgba(255,255,255,0.08);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+  border: 1px solid rgba(255,255,255,0.15);
+  overflow: hidden;
+  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  cursor: pointer;
+  animation: fadeUp 0.8s ease-out backwards;
+}
+.game-card:nth-child(1) { animation-delay: 0.2s; }
+.game-card:nth-child(2) { animation-delay: 0.4s; }
+.game-card:nth-child(3) { animation-delay: 0.6s; }
+
+@keyframes fadeUp { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: translateY(0); } }
+
+.game-card:hover {
+  transform: translateY(-10px) scale(1.02);
+  border-color: rgba(255,215,0,0.4);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.4), 0 0 30px rgba(255,215,0,0.1);
+}
+
+.game-preview {
+  height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 80px;
+  position: relative;
+  overflow: hidden;
+}
+.game-card:nth-child(1) .game-preview { background: linear-gradient(135deg, #1a472a, #2d7a4a); }
+.game-card:nth-child(2) .game-preview { background: linear-gradient(135deg, #2a1a47, #4a2d7a); }
+.game-card:nth-child(3) .game-preview { background: linear-gradient(135deg, #47341a, #7a5a2d); }
+
+.game-preview::after {
+  content: '';
+  position: absolute;
+  top: -50%; left: -50%;
+  width: 200%; height: 200%;
+  background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 60%);
+  animation: shimmer 4s infinite;
+}
+@keyframes shimmer {
+  0%, 100% { transform: translate(-30%, -30%); }
+  50% { transform: translate(30%, 30%); }
+}
+
+.game-info {
+  padding: 25px;
+}
+.game-info h2 {
+  font-size: 1.5em; color: #fff; margin-bottom: 8px;
+}
+.game-info .tags {
+  display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;
+}
+.tag {
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 0.75em;
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+.tag-physics { background: rgba(255,100,100,0.2); color: #ff8888; }
+.tag-casual { background: rgba(100,200,255,0.2); color: #88ccff; }
+.tag-pvp { background: rgba(255,200,100,0.2); color: #ffcc88; }
+.tag-world-cup { background: rgba(255,215,0,0.2); color: #ffd700; }
+
+.game-info p {
+  color: rgba(255,255,255,0.6);
+  font-size: 0.95em;
+  line-height: 1.6;
+  margin-bottom: 15px;
+}
+
+.play-btn {
+  display: inline-block;
+  padding: 10px 30px;
+  background: linear-gradient(135deg, #ffd700, #ffaa00);
+  color: #1a1a2e;
+  font-weight: bold;
+  font-size: 1em;
+  border-radius: 25px;
+  text-decoration: none;
+  transition: all 0.3s;
+  box-shadow: 0 4px 15px rgba(255,215,0,0.3);
+}
+.play-btn:hover {
+  transform: scale(1.05);
+  box-shadow: 0 6px 25px rgba(255,215,0,0.5);
+}
+
+.footer {
+  text-align: center;
+  color: rgba(255,255,255,0.3);
+  font-size: 0.85em;
+  padding: 20px;
+  border-top: 1px solid rgba(255,255,255,0.05);
+}
+.footer a { color: rgba(255,215,0,0.5); text-decoration: none; }
+</style>
+</head>
+<body>
+
+<div class="stars" id="stars"></div>
+
+<div class="container">
+  <div class="header">
+    <div class="trophy">🏆</div>
+    <h1><span class="cup">2026世界杯</span> x <span class="bird">愤怒的小鸟</span></h1>
+    <div class="subtitle">蹭 杯 大 作 战</div>
+    <div class="host">
+      <span class="flag">🇺🇸</span>
+      <span class="flag">🇨🇦</span>
+      <span class="flag">🇲🇽</span>
+      <span>美国 · 加拿大 · 墨西哥 联合举办</span>
+    </div>
+  </div>
+
+  <div class="games">
+    <div class="game-card" onclick="location.href='game1-angry-striker.html'">
+      <div class="game-preview">🐦⚽🥅</div>
+      <div class="game-info">
+        <h2>怒鸟弹弓射门</h2>
+        <div class="tags">
+          <span class="tag tag-physics">物理引擎</span>
+          <span class="tag tag-world-cup">世界杯</span>
+        </div>
+        <p>经典弹弓发射！把愤怒的小鸟射向球门，破坏猪猪防线，轰出世界波！3个关卡，难度递增。</p>
+        <a class="play-btn" href="game1-angry-striker.html">开始游戏 →</a>
+      </div>
+    </div>
+
+    <div class="game-card" onclick="location.href='game2-penalty.html'">
+      <div class="game-preview">🐷🧤🥅</div>
+      <div class="game-info">
+        <h2>点球大战：鸟 vs 猪</h2>
+        <div class="tags">
+          <span class="tag tag-pvp">对抗</span>
+          <span class="tag tag-world-cup">世界杯</span>
+        </div>
+        <p>世界杯决赛点球大战！你是怒鸟队射手，猪猪队守门员拼命扑救。5轮对决，谁能捧杯？</p>
+        <a class="play-btn" href="game2-penalty.html">开始游戏 →</a>
+      </div>
+    </div>
+
+    <div class="game-card" onclick="location.href='game3-keepup.html'">
+      <div class="game-preview">🐦⬆️⚽</div>
+      <div class="game-info">
+        <h2>怒鸟颠球王</h2>
+        <div class="tags">
+          <span class="tag tag-casual">休闲</span>
+          <span class="tag tag-world-cup">世界杯</span>
+        </div>
+        <p>Red 苦练颠球备战世界杯！点击屏幕顶球，连击越多分越高。你能颠多少个？挑战极限！</p>
+        <a class="play-btn" href="game3-keepup.html">开始游戏 →</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <p>纯蹭热度，与 FIFA / Rovio 无关 | 2026 世界杯加油！</p>
+  </div>
+</div>
+
+<script>
+const starsEl = document.getElementById('stars');
+for (let i = 0; i < 60; i++) {
+  const s = document.createElement('div');
+  s.className = 'star';
+  const size = Math.random() * 3 + 1;
+  s.style.cssText = `width:${size}px;height:${size}px;top:${Math.random()*100}%;left:${Math.random()*100}%;animation-delay:${Math.random()*2}s;animation-duration:${1.5+Math.random()*2}s`;
+  starsEl.appendChild(s);
+}
+</script>
+</body>
+</html>

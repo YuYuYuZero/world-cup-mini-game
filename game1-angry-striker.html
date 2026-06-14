@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>怒鸟弹弓射门 - 2026世界杯</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #1a1a2e; display: flex; justify-content: center; align-items: center; min-height: 100vh; font-family: Arial, sans-serif; overflow: hidden; }
+canvas { display: block; border-radius: 10px; box-shadow: 0 0 40px rgba(0,0,0,0.5); cursor: crosshair; max-width: 100vw; max-height: 100vh; }
+.back { position: fixed; top: 15px; left: 15px; color: #fff; text-decoration: none; font-size: 14px; background: rgba(0,0,0,0.5); padding: 8px 15px; border-radius: 20px; z-index: 10; }
+.back:hover { background: rgba(255,215,0,0.3); }
+</style>
+</head>
+<body>
+<a class="back" href="index.html">← 返回</a>
+<canvas id="c"></canvas>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const W = 900, H = 560;
+canvas.width = W; canvas.height = H;
+
+const GRAVITY = 0.25;
+const GROUND = H - 60;
+const SLING_X = 130, SLING_Y = GROUND - 90;
+
+let particles = [];
+let shakeX = 0, shakeY = 0;
+let score = 0, totalScore = 0;
+let level = 0;
+let birdsLeft = 0;
+let gameState = 'ready';
+let currentBird = null;
+let dragging = false;
+let dragStartX = 0, dragStartY = 0;
+let trail = [];
+let goalScored = false;
+let celebTimer = 0;
+let messageText = '';
+let messageTimer = 0;
+let starCount = 0;
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playSound(freq, dur, type='square', vol=0.15) {
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  g.gain.setValueAtTime(vol, audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+  o.connect(g); g.connect(audioCtx.destination);
+  o.start(); o.stop(audioCtx.currentTime + dur);
+}
+function sndLaunch() { playSound(300, 0.3, 'sawtooth', 0.1); setTimeout(()=>playSound(500, 0.2, 'sawtooth', 0.08), 100); }
+function sndHit() { playSound(150, 0.15, 'square', 0.12); }
+function sndBreak() { playSound(80, 0.2, 'sawtooth', 0.15); playSound(120, 0.15, 'square', 0.1); }
+function sndPigDie() { playSound(600, 0.1, 'sine', 0.12); playSound(400, 0.2, 'sine', 0.1); }
+function sndGoal() { for(let i=0;i<5;i++) setTimeout(()=>playSound(400+i*100,0.3,'sine',0.1), i*80); }
+function sndWin() { [523,659,784,1047].forEach((f,i)=>setTimeout(()=>playSound(f,0.4,'sine',0.12), i*150)); }
+
+class Bird {
+  constructor(x, y) { this.x=x; this.y=y; this.r=18; this.vx=0; this.vy=0; this.launched=false; this.active=true; this.timer=0; this.jersey=level; }
+  update() {
+    if (!this.launched||!this.active) return;
+    this.vy += GRAVITY;
+    this.x += this.vx; this.y += this.vy;
+    this.timer++;
+    if (this.timer % 3 === 0) trail.push({x:this.x,y:this.y,life:30});
+    if (this.y+this.r > GROUND) { this.y=GROUND-this.r; this.vy*=-0.3; this.vx*=0.7; }
+    if (this.x-this.r < 0) { this.x=this.r; this.vx*=-0.5; }
+    if (this.x+this.r > W) { this.x=W-this.r; this.vx*=-0.5; }
+    if (this.timer > 300 || (this.launched && this.timer > 30 && Math.abs(this.vx)<0.3 && Math.abs(this.vy)<0.3)) {
+      this.active = false;
+    }
+  }
+  draw() {
+    const x=this.x+shakeX, y=this.y+shakeY;
+    ctx.save();
+    // body
+    ctx.beginPath(); ctx.arc(x,y,this.r,0,Math.PI*2);
+    ctx.fillStyle='#e53935'; ctx.fill();
+    ctx.strokeStyle='#b71c1c'; ctx.lineWidth=2; ctx.stroke();
+    // belly
+    ctx.beginPath(); ctx.arc(x,y+4,this.r*0.6,0,Math.PI);
+    ctx.fillStyle='#ffcdd2'; ctx.fill();
+    // eyes
+    const ex=this.launched?Math.atan2(this.vy,this.vx):0;
+    ctx.save(); ctx.translate(x,y-3); ctx.rotate(ex*0.3);
+    ctx.fillStyle='#fff';
+    ctx.beginPath(); ctx.ellipse(-5,-2,5,6,0,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(5,-2,5,6,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#000';
+    ctx.beginPath(); ctx.arc(-4,-2,2.5,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(6,-2,2.5,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+    // angry eyebrows
+    ctx.strokeStyle='#4a0000'; ctx.lineWidth=3; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(x-10,y-10); ctx.lineTo(x-3,y-7); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x+10,y-10); ctx.lineTo(x+3,y-7); ctx.stroke();
+    // beak
+    ctx.fillStyle='#ff8f00';
+    ctx.beginPath(); ctx.moveTo(x,y+2); ctx.lineTo(x+8,y+5); ctx.lineTo(x,y+8); ctx.fill();
+    // jersey number
+    ctx.fillStyle='#fff'; ctx.font='bold 8px Arial'; ctx.textAlign='center';
+    ctx.fillText('10', x-1, y+3);
+    // tail
+    ctx.fillStyle='#000';
+    ctx.beginPath(); ctx.moveTo(x-this.r,y-5); ctx.lineTo(x-this.r-8,y-12); ctx.lineTo(x-this.r-6,y-3); ctx.lineTo(x-this.r-10,y); ctx.lineTo(x-this.r,y+2); ctx.fill();
+    ctx.restore();
+  }
+}
+
+class Block {
+  constructor(x,y,w,h,type) {
+    this.x=x; this.y=y; this.w=w; this.h=h; this.type=type;
+    this.vx=0; this.vy=0; this.alive=true; this.angle=0; this.angVel=0;
+    this.hp = type==='stone'?3 : type==='ice'?1 : 2;
+    this.maxHp = this.hp;
+    this.mass = type==='stone'?3 : type==='ice'?0.5 : 1;
+  }
+  update() {
+    if (!this.alive) return;
+    this.vy += GRAVITY*0.4;
+    this.x+=this.vx; this.y+=this.vy;
+    this.vx*=0.96; this.vy*=0.96;
+    this.angle+=this.angVel; this.angVel*=0.95;
+    if (this.y+this.h/2>GROUND) { this.y=GROUND-this.h/2; this.vy*=-0.2; this.vx*=0.8; }
+    if (this.x-this.w/2<0) { this.x=this.w/2; this.vx*=-0.5; }
+    if (this.x+this.w/2>W) { this.x=W-this.w/2; this.vx*=-0.5; }
+  }
+  draw() {
+    if (!this.alive) return;
+    const x=this.x+shakeX, y=this.y+shakeY;
+    ctx.save(); ctx.translate(x,y); ctx.rotate(this.angle);
+    const colors = { wood:['#8d6e3f','#6d4e2f'], stone:['#888','#666'], ice:['rgba(150,220,255,0.8)','rgba(100,180,220,0.8)'] };
+    const [fill,stroke] = colors[this.type];
+    ctx.fillStyle=fill; ctx.strokeStyle=stroke; ctx.lineWidth=2;
+    ctx.fillRect(-this.w/2,-this.h/2,this.w,this.h);
+    ctx.strokeRect(-this.w/2,-this.h/2,this.w,this.h);
+    if (this.type==='wood') {
+      ctx.strokeStyle='rgba(0,0,0,0.15)'; ctx.lineWidth=1;
+      for(let i=0;i<3;i++) { ctx.beginPath(); ctx.moveTo(-this.w/2,(-this.h/2)+(i+1)*this.h/4); ctx.lineTo(this.w/2,(-this.h/2)+(i+1)*this.h/4); ctx.stroke(); }
+    }
+    if (this.hp<this.maxHp) {
+      ctx.strokeStyle='rgba(0,0,0,0.4)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(-this.w/3,-this.h/3); ctx.lineTo(this.w/4,this.h/4); ctx.stroke();
+      if (this.hp<=1) { ctx.beginPath(); ctx.moveTo(this.w/3,-this.h/4); ctx.lineTo(-this.w/4,this.h/3); ctx.stroke(); }
+    }
+    ctx.restore();
+  }
+  hit(force) {
+    this.hp -= force;
+    if (this.hp<=0) { this.alive=false; score+=this.type==='stone'?300:this.type==='ice'?100:200; spawnBreakParticles(this.x,this.y,this.type); sndBreak(); }
+    else sndHit();
+  }
+}
+
+class Pig {
+  constructor(x,y,size) {
+    this.x=x; this.y=y; this.r=size||20; this.hp=2; this.alive=true;
+    this.vx=0; this.vy=0; this.ouch=0;
+  }
+  update() {
+    if (!this.alive) return;
+    this.vy+=GRAVITY*0.3;
+    this.x+=this.vx; this.y+=this.vy;
+    this.vx*=0.96; this.vy*=0.96;
+    if (this.y+this.r>GROUND) { this.y=GROUND-this.r; this.vy*=-0.2; this.vx*=0.7; }
+    if (this.ouch>0) this.ouch--;
+  }
+  draw() {
+    if (!this.alive) return;
+    const x=this.x+shakeX, y=this.y+shakeY;
+    ctx.save();
+    // body
+    ctx.beginPath(); ctx.arc(x,y,this.r,0,Math.PI*2);
+    ctx.fillStyle='#4caf50'; ctx.fill();
+    ctx.strokeStyle='#2e7d32'; ctx.lineWidth=2; ctx.stroke();
+    // ears
+    ctx.fillStyle='#4caf50';
+    ctx.beginPath(); ctx.arc(x-this.r+3,y-this.r+5,5,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x+this.r-3,y-this.r+5,5,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    // snout
+    ctx.beginPath(); ctx.ellipse(x,y+3,this.r*0.5,this.r*0.35,0,0,Math.PI*2);
+    ctx.fillStyle='#66bb6a'; ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#2e7d32';
+    ctx.beginPath(); ctx.arc(x-3,y+3,2,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x+3,y+3,2,0,Math.PI*2); ctx.fill();
+    // eyes
+    const ey = this.ouch>0 ? 2 : 0;
+    ctx.fillStyle='#fff';
+    ctx.beginPath(); ctx.arc(x-6,y-5+ey,5,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x+6,y-5+ey,5,0,Math.PI*2); ctx.fill();
+    if (this.ouch>0) {
+      ctx.strokeStyle='#000'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(x-8,y-7); ctx.lineTo(x-4,y-3); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x-4,y-7); ctx.lineTo(x-8,y-3); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x+4,y-7); ctx.lineTo(x+8,y-3); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x+8,y-7); ctx.lineTo(x+4,y-3); ctx.stroke();
+    } else {
+      ctx.fillStyle='#000';
+      ctx.beginPath(); ctx.arc(x-5,y-5,2.5,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x+7,y-5,2.5,0,Math.PI*2); ctx.fill();
+    }
+    // goalkeeper gloves
+    ctx.fillStyle='#ff9800';
+    ctx.fillRect(x-this.r-6,y+this.r-10,8,10);
+    ctx.fillRect(x+this.r-2,y+this.r-10,8,10);
+    ctx.restore();
+  }
+  hit(force) {
+    this.hp -= force;
+    this.ouch = 60;
+    if (this.hp<=0) { this.alive=false; score+=500; spawnBreakParticles(this.x,this.y,'pig'); sndPigDie(); }
+    else sndHit();
+  }
+}
+
+let birds_arr = [];
+let blocks_arr = [];
+let pigs_arr = [];
+
+const levels = [
+  // Level 1: Easy - simple wall
+  { birds:3, setup:()=>{
+    blocks_arr = [
+      new Block(580,GROUND-20,20,40,'wood'),
+      new Block(630,GROUND-20,20,40,'wood'),
+      new Block(605,GROUND-50,70,15,'wood'),
+      new Block(605,GROUND-65,20,15,'wood'),
+    ];
+    pigs_arr = [new Pig(605,GROUND-20)];
+  }},
+  // Level 2: Medium - two pigs, mixed materials
+  { birds:4, setup:()=>{
+    blocks_arr = [
+      new Block(500,GROUND-20,20,40,'wood'),
+      new Block(550,GROUND-20,20,40,'wood'),
+      new Block(525,GROUND-50,70,15,'wood'),
+      new Block(525,GROUND-70,20,25,'ice'),
+      new Block(650,GROUND-20,20,40,'stone'),
+      new Block(700,GROUND-20,20,40,'stone'),
+      new Block(675,GROUND-50,70,15,'wood'),
+      new Block(675,GROUND-65,15,15,'ice'),
+      new Block(675,GROUND-80,15,15,'ice'),
+    ];
+    pigs_arr = [new Pig(525,GROUND-18), new Pig(675,GROUND-18)];
+  }},
+  // Level 3: Hard - fortress
+  { birds:5, setup:()=>{
+    blocks_arr = [
+      new Block(480,GROUND-20,20,40,'stone'),
+      new Block(530,GROUND-20,20,40,'wood'),
+      new Block(580,GROUND-20,20,40,'stone'),
+      new Block(630,GROUND-20,20,40,'wood'),
+      new Block(680,GROUND-20,20,40,'stone'),
+      new Block(505,GROUND-50,70,15,'wood'),
+      new Block(605,GROUND-50,70,15,'wood'),
+      new Block(655,GROUND-50,70,15,'wood'),
+      new Block(555,GROUND-50,70,15,'stone'),
+      new Block(580,GROUND-75,20,35,'wood'),
+      new Block(580,GROUND-100,60,15,'stone'),
+      new Block(505,GROUND-70,15,25,'ice'),
+      new Block(655,GROUND-70,15,25,'ice'),
+    ];
+    pigs_arr = [new Pig(505,GROUND-18,18), new Pig(580,GROUND-18,18), new Pig(655,GROUND-18,18)];
+  }}
+];
+
+function spawnBreakParticles(x,y,type) {
+  const colors = {wood:['#8d6e3f','#a0824f','#6d4e2f'],stone:['#888','#aaa','#666'],ice:['#90caf9','#bbdefb','#64b5f6'],pig:['#4caf50','#66bb6a','#81c784']};
+  const c = colors[type]||colors.wood;
+  for(let i=0;i<12;i++) {
+    const a=Math.random()*Math.PI*2, sp=2+Math.random()*4;
+    particles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-2,life:40+Math.random()*20,color:c[i%c.length],size:2+Math.random()*4});
+  }
+}
+
+function spawnGoalParticles() {
+  for(let i=0;i<30;i++) {
+    const a=Math.random()*Math.PI*2, sp=3+Math.random()*6;
+    particles.push({x:W-60,y:GROUND-80,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-3,life:60+Math.random()*30,color:['#ffd700','#ff6b6b','#4ecdc4','#fff'][i%4],size:3+Math.random()*5});
+  }
+}
+
+function shake(amt) { shakeX=(Math.random()-0.5)*amt; shakeY=(Math.random()-0.5)*amt; }
+function showMsg(txt,dur) { messageText=txt; messageTimer=dur||120; }
+
+function loadLevel(n) {
+  level = n;
+  if (level >= levels.length) { gameState='victory'; sndWin(); return; }
+  const lv = levels[level];
+  lv.setup();
+  birdsLeft = lv.birds;
+  score = 0;
+  goalScored = false;
+  celebTimer = 0;
+  currentBird = new Bird(SLING_X, SLING_Y);
+  birdsLeft--;
+  trail = [];
+  particles = [];
+  gameState = 'ready';
+  showMsg(`第 ${level+1} 关`, 90);
+}
+
+function nextBird() {
+  if (birdsLeft > 0) {
+    currentBird = new Bird(SLING_X, SLING_Y);
+    birdsLeft--;
+    gameState = 'ready';
+  } else {
+    if (pigs_arr.some(p=>p.alive)) {
+      gameState = 'failed';
+      showMsg('挑战失败！点击重试', 999);
+    }
+  }
+}
+
+function checkCollisions() {
+  if (!currentBird || !currentBird.active || !currentBird.launched) return;
+  const b = currentBird;
+
+  blocks_arr.forEach(bl => {
+    if (!bl.alive) return;
+    const cx = Math.max(bl.x-bl.w/2, Math.min(b.x, bl.x+bl.w/2));
+    const cy = Math.max(bl.y-bl.h/2, Math.min(b.y, bl.y+bl.h/2));
+    const dx = b.x-cx, dy = b.y-cy;
+    if (dx*dx+dy*dy < b.r*b.r) {
+      const speed = Math.sqrt(b.vx*b.vx+b.vy*b.vy);
+      const force = speed > 5 ? 2 : 1;
+      bl.hit(force);
+      bl.vx += b.vx*0.3; bl.vy += b.vy*0.3;
+      bl.angVel += (Math.random()-0.5)*0.1;
+      b.vx *= -0.3; b.vy *= -0.3;
+      shake(5);
+    }
+  });
+
+  pigs_arr.forEach(p => {
+    if (!p.alive) return;
+    const dx=b.x-p.x, dy=b.y-p.y, dist=Math.sqrt(dx*dx+dy*dy);
+    if (dist < b.r+p.r) {
+      const speed = Math.sqrt(b.vx*b.vx+b.vy*b.vy);
+      p.hit(speed>4?2:1);
+      p.vx += b.vx*0.4; p.vy += b.vy*0.4;
+      b.vx *= -0.2; b.vy *= -0.2;
+      shake(8);
+    }
+  });
+
+  // block-block and block-pig collisions
+  for(let i=0;i<blocks_arr.length;i++) {
+    const a = blocks_arr[i]; if(!a.alive) continue;
+    const aSpeed = Math.sqrt(a.vx*a.vx+a.vy*a.vy);
+    if (aSpeed < 1) continue;
+    pigs_arr.forEach(p => {
+      if (!p.alive) return;
+      const cx = Math.max(a.x-a.w/2, Math.min(p.x, a.x+a.w/2));
+      const cy = Math.max(a.y-a.h/2, Math.min(p.y, a.y+a.h/2));
+      const dx=p.x-cx, dy=p.y-cy;
+      if (dx*dx+dy*dy < p.r*p.r) {
+        p.hit(1); p.vx+=a.vx*0.2; p.vy+=a.vy*0.2;
+      }
+    });
+  }
+
+  // goal check (right side area)
+  if (b.x > W-80 && b.y > GROUND-140 && b.y < GROUND && !goalScored) {
+    goalScored = true; score += 1000; celebTimer = 120;
+    spawnGoalParticles(); sndGoal();
+    showMsg('GOAL!!! ⚽🎉', 120);
+  }
+}
+
+function checkLevelComplete() {
+  if (gameState!=='waiting') return;
+  const allDead = pigs_arr.every(p=>!p.alive);
+  if (allDead || goalScored) {
+    starCount = goalScored && allDead ? 3 : allDead ? 2 : goalScored ? 2 : 1;
+    score += birdsLeft * 200;
+    totalScore += score;
+    gameState = 'levelComplete';
+    sndWin();
+    showMsg(level>=levels.length-1?'通关！总分: '+totalScore:`过关！得分: ${score}`, 999);
+  }
+}
+
+// Goal posts
+function drawGoal() {
+  const gx=W-70, gy=GROUND, gw=60, gh=100;
+  ctx.strokeStyle='#fff'; ctx.lineWidth=5;
+  ctx.strokeRect(gx+shakeX, gy-gh+shakeY, gw, gh);
+  // net
+  ctx.strokeStyle='rgba(255,255,255,0.2)'; ctx.lineWidth=1;
+  for(let i=1;i<6;i++) {
+    ctx.beginPath(); ctx.moveTo(gx+shakeX,gy-gh+i*gh/6+shakeY); ctx.lineTo(gx+gw+shakeX,gy-gh+i*gh/6+shakeY); ctx.stroke();
+  }
+  for(let i=1;i<4;i++) {
+    ctx.beginPath(); ctx.moveTo(gx+i*gw/4+shakeX,gy-gh+shakeY); ctx.lineTo(gx+i*gw/4+shakeX,gy+shakeY); ctx.stroke();
+  }
+}
+
+function drawSlingshot() {
+  const sx=SLING_X+shakeX, sy=SLING_Y+shakeY;
+  ctx.fillStyle='#5d4037'; ctx.strokeStyle='#3e2723'; ctx.lineWidth=2;
+  // base
+  ctx.fillRect(sx-5,sy,10,GROUND-sy);
+  // fork
+  ctx.beginPath(); ctx.moveTo(sx-3,sy); ctx.lineTo(sx-18,sy-35); ctx.lineTo(sx-12,sy-35); ctx.lineTo(sx-3,sy-8); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(sx+3,sy); ctx.lineTo(sx+18,sy-35); ctx.lineTo(sx+12,sy-35); ctx.lineTo(sx+3,sy-8); ctx.fill(); ctx.stroke();
+
+  if (dragging && currentBird) {
+    // elastic band
+    ctx.strokeStyle='#795548'; ctx.lineWidth=4;
+    ctx.beginPath(); ctx.moveTo(sx-15,sy-32); ctx.lineTo(currentBird.x+shakeX,currentBird.y+shakeY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(sx+15,sy-32); ctx.lineTo(currentBird.x+shakeX,currentBird.y+shakeY); ctx.stroke();
+    // trajectory dots
+    let px=currentBird.x, py=currentBird.y;
+    let pvx=(SLING_X-currentBird.x)*0.15, pvy=(SLING_Y-currentBird.y)*0.15;
+    ctx.fillStyle='rgba(255,255,255,0.3)';
+    for(let i=0;i<30;i++) {
+      pvy+=GRAVITY; px+=pvx; py+=pvy;
+      if (py>GROUND||px>W) break;
+      if(i%2===0) { ctx.beginPath(); ctx.arc(px+shakeX,py+shakeY,2,0,Math.PI*2); ctx.fill(); }
+    }
+  } else if (gameState==='ready' && currentBird) {
+    ctx.strokeStyle='#795548'; ctx.lineWidth=4;
+    ctx.beginPath(); ctx.moveTo(sx-15,sy-32); ctx.lineTo(currentBird.x+shakeX,currentBird.y+shakeY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(sx+15,sy-32); ctx.lineTo(currentBird.x+shakeX,currentBird.y+shakeY); ctx.stroke();
+  }
+}
+
+function drawBackground() {
+  // sky gradient
+  const grad = ctx.createLinearGradient(0,0,0,H);
+  grad.addColorStop(0,'#1565c0'); grad.addColorStop(0.5,'#42a5f5'); grad.addColorStop(0.8,'#81d4fa'); grad.addColorStop(1,'#4caf50');
+  ctx.fillStyle=grad; ctx.fillRect(0,0,W,H);
+  // clouds
+  ctx.fillStyle='rgba(255,255,255,0.5)';
+  [[100,60,40],[300,40,30],[500,70,35],[700,50,25]].forEach(([cx,cy,r])=>{
+    ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.arc(cx+r*0.7,cy-r*0.2,r*0.7,0,Math.PI*2); ctx.arc(cx-r*0.5,cy+r*0.1,r*0.6,0,Math.PI*2); ctx.fill();
+  });
+  // stadium stands hint
+  ctx.fillStyle='rgba(0,0,0,0.1)';
+  ctx.fillRect(0,H-100,W,10);
+  // ground
+  ctx.fillStyle='#388e3c'; ctx.fillRect(0,GROUND,W,H-GROUND);
+  // field lines
+  ctx.strokeStyle='rgba(255,255,255,0.3)'; ctx.lineWidth=2; ctx.setLineDash([5,5]);
+  ctx.beginPath(); ctx.moveTo(W/2,GROUND); ctx.lineTo(W/2,H); ctx.stroke();
+  ctx.setLineDash([]);
+  // penalty area
+  ctx.strokeStyle='rgba(255,255,255,0.2)'; ctx.lineWidth=2;
+  ctx.strokeRect(W-200,GROUND,200,H-GROUND);
+}
+
+function drawUI() {
+  // score
+  ctx.fillStyle='rgba(0,0,0,0.4)'; ctx.fillRect(10,10,200,35);
+  ctx.fillStyle='#ffd700'; ctx.font='bold 16px Arial'; ctx.textAlign='left';
+  ctx.fillText(`得分: ${score}`, 20, 33);
+  // birds left
+  for(let i=0;i<birdsLeft;i++) {
+    ctx.beginPath(); ctx.arc(250+i*25,28,9,0,Math.PI*2);
+    ctx.fillStyle='#e53935'; ctx.fill(); ctx.strokeStyle='#b71c1c'; ctx.lineWidth=1; ctx.stroke();
+  }
+  // level
+  ctx.fillStyle='#fff'; ctx.font='bold 14px Arial'; ctx.textAlign='right';
+  ctx.fillText(`第 ${level+1}/${levels.length} 关`, W-20, 28);
+  ctx.fillText(`总分: ${totalScore}`, W-20, 48);
+  // World Cup branding
+  ctx.fillStyle='rgba(255,215,0,0.6)'; ctx.font='bold 12px Arial'; ctx.textAlign='center';
+  ctx.fillText('FIFA WORLD CUP 2026™ x ANGRY BIRDS', W/2, H-5);
+
+  // message
+  if (messageTimer > 0) {
+    messageTimer--;
+    const alpha = messageTimer > 30 ? 1 : messageTimer/30;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle='rgba(0,0,0,0.6)';
+    ctx.fillRect(W/2-150, H/2-30, 300, 60);
+    ctx.fillStyle='#ffd700'; ctx.font='bold 28px Arial'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(messageText, W/2, H/2);
+    ctx.restore();
+  }
+}
+
+function drawLevelComplete() {
+  ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#ffd700'; ctx.font='bold 36px Arial'; ctx.textAlign='center';
+  ctx.fillText(level>=levels.length-1?'🏆 通关！':'🎉 过关！', W/2, H/2-60);
+  ctx.fillStyle='#fff'; ctx.font='24px Arial';
+  ctx.fillText(`得分: ${score}`, W/2, H/2-15);
+  // stars
+  const stars = '⭐'.repeat(starCount) + '☆'.repeat(3-starCount);
+  ctx.font='36px Arial';
+  ctx.fillText(stars, W/2, H/2+30);
+  ctx.font='18px Arial'; ctx.fillStyle='rgba(255,255,255,0.7)';
+  ctx.fillText(level>=levels.length-1?'点击返回主页':'点击进入下一关', W/2, H/2+70);
+}
+
+function drawFailed() {
+  ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#ff5252'; ctx.font='bold 36px Arial'; ctx.textAlign='center';
+  ctx.fillText('😤 挑战失败！', W/2, H/2-30);
+  ctx.font='18px Arial'; ctx.fillStyle='rgba(255,255,255,0.7)';
+  ctx.fillText('点击重试', W/2, H/2+20);
+}
+
+function drawVictory() {
+  ctx.fillStyle='rgba(0,0,0,0.7)'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#ffd700'; ctx.font='bold 42px Arial'; ctx.textAlign='center';
+  ctx.fillText('🏆 世界杯冠军！🏆', W/2, H/2-60);
+  ctx.fillStyle='#fff'; ctx.font='24px Arial';
+  ctx.fillText(`总分: ${totalScore}`, W/2, H/2-10);
+  ctx.font='18px Arial'; ctx.fillStyle='rgba(255,255,255,0.6)';
+  ctx.fillText('怒鸟队勇夺2026世界杯冠军！', W/2, H/2+30);
+  ctx.fillText('点击重新开始', W/2, H/2+65);
+}
+
+function update() {
+  shakeX *= 0.85; shakeY *= 0.85;
+
+  if (currentBird) currentBird.update();
+  blocks_arr.forEach(b=>b.update());
+  pigs_arr.forEach(p=>p.update());
+
+  trail = trail.filter(t => { t.life--; return t.life > 0; });
+  particles = particles.filter(p => { p.x+=p.vx; p.y+=p.vy; p.vy+=0.1; p.life--; return p.life>0; });
+
+  if (celebTimer > 0) celebTimer--;
+
+  checkCollisions();
+
+  if (gameState==='flying' && currentBird && !currentBird.active) {
+    gameState = 'waiting';
+    setTimeout(()=>{
+      if(gameState==='waiting') {
+        if (pigs_arr.every(p=>!p.alive) || goalScored) { checkLevelComplete(); }
+        else nextBird();
+      }
+    }, 800);
+  }
+}
+
+function draw() {
+  drawBackground();
+  drawGoal();
+
+  // trail
+  trail.forEach(t => {
+    ctx.beginPath(); ctx.arc(t.x+shakeX,t.y+shakeY, t.life/10, 0, Math.PI*2);
+    ctx.fillStyle=`rgba(255,200,0,${t.life/60})`; ctx.fill();
+  });
+
+  drawSlingshot();
+  blocks_arr.forEach(b=>b.draw());
+  pigs_arr.forEach(p=>p.draw());
+  if (currentBird) currentBird.draw();
+
+  // particles
+  particles.forEach(p => {
+    ctx.beginPath(); ctx.arc(p.x+shakeX,p.y+shakeY,p.size*(p.life/60),0,Math.PI*2);
+    ctx.fillStyle=p.color; ctx.fill();
+  });
+
+  drawUI();
+
+  if (gameState==='levelComplete') drawLevelComplete();
+  else if (gameState==='failed') drawFailed();
+  else if (gameState==='victory') drawVictory();
+}
+
+function gameLoop() {
+  update();
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+// Input
+function getPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = W/rect.width, scaleY = H/rect.height;
+  const touch = e.touches ? e.touches[0] : e;
+  return { x:(touch.clientX-rect.left)*scaleX, y:(touch.clientY-rect.top)*scaleY };
+}
+
+canvas.addEventListener('mousedown', e => handleDown(getPos(e)));
+canvas.addEventListener('mousemove', e => handleMove(getPos(e)));
+canvas.addEventListener('mouseup', e => handleUp());
+canvas.addEventListener('touchstart', e => { e.preventDefault(); handleDown(getPos(e)); });
+canvas.addEventListener('touchmove', e => { e.preventDefault(); handleMove(getPos(e)); });
+canvas.addEventListener('touchend', e => { e.preventDefault(); handleUp(); });
+
+function handleDown(pos) {
+  if (gameState==='levelComplete') { loadLevel(level+1); return; }
+  if (gameState==='failed') { loadLevel(level); return; }
+  if (gameState==='victory') { totalScore=0; loadLevel(0); return; }
+  if (gameState!=='ready'||!currentBird) return;
+  const dx=pos.x-currentBird.x, dy=pos.y-currentBird.y;
+  if (dx*dx+dy*dy < 1600) { dragging=true; }
+}
+
+function handleMove(pos) {
+  if (!dragging||!currentBird) return;
+  let dx=pos.x-SLING_X, dy=pos.y-SLING_Y;
+  const dist=Math.sqrt(dx*dx+dy*dy);
+  const maxDist=100;
+  if(dist>maxDist) { dx=dx/dist*maxDist; dy=dy/dist*maxDist; }
+  currentBird.x=SLING_X+dx; currentBird.y=SLING_Y+dy;
+}
+
+function handleUp() {
+  if (!dragging||!currentBird) return;
+  dragging=false;
+  const dx=SLING_X-currentBird.x, dy=SLING_Y-currentBird.y;
+  if (dx*dx+dy*dy < 100) { currentBird.x=SLING_X; currentBird.y=SLING_Y; return; }
+  currentBird.vx = dx*0.15;
+  currentBird.vy = dy*0.15;
+  currentBird.launched = true;
+  gameState = 'flying';
+  sndLaunch();
+}
+
+loadLevel(0);
+gameLoop();
+</script>
+</body>
+</html>
